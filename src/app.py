@@ -310,28 +310,66 @@ def _cached_fetch(
     )
 
 
+PAGE_SIZE_OPTIONS = (20, 50, 100)
+
+
+def _twenty_years_ago(today: datetime.date) -> datetime.date:
+    try:
+        return today.replace(year=today.year - 20)
+    except ValueError:
+        return today.replace(year=today.year - 20, day=28)
+
+
+def _added_date_bounds(
+    value: datetime.date,
+) -> Tuple[datetime.date, datetime.date, datetime.date]:
+    """Return the earliest selectable date, today, and a value inside that span.
+
+    The calendar always reaches 20 years before today and never past today.
+    An added date older than that stays visible so the control can still render.
+    """
+    today = datetime.date.today()
+    earliest = min(_twenty_years_ago(today), value)
+    chosen = min(max(value, earliest), today)
+    return earliest, today, chosen
+
+
+def _default_page_size() -> int:
+    raw = os.environ.get("PLEX_PAGE_SIZE", "20")
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return PAGE_SIZE_OPTIONS[0]
+    if size in PAGE_SIZE_OPTIONS:
+        return size
+    return PAGE_SIZE_OPTIONS[0]
+
+
+def _library_state(prefix: str, section_id: str) -> Dict:
+    return {
+        f"{prefix}_page": 1,
+        f"{prefix}_page_size": _default_page_size(),
+        f"{prefix}_selected": {},
+        f"{prefix}_show_images": True,
+        f"{prefix}_sort": "addedAt:desc",
+        f"{prefix}_year_filter": "",
+        f"{prefix}_title_filter": "",
+        f"{prefix}_section": section_id,
+        f"{prefix}_lock_added": True,
+    }
+
+
 def _init_state() -> None:
     defaults = {
-        "movie_page": 1,
-        "movie_page_size": 100,
-        "movie_selected": {},
-        "movie_show_images": True,
-        "movie_sort": "addedAt:desc",
-        "movie_year_filter": "",
-        "movie_title_filter": "",
-        "movie_section": os.environ.get("PLEX_MOVIE_SECTION_ID", "1"),
-        "movie_lock_added": True,
-        "show_page": 1,
-        "show_page_size": 100,
-        "show_selected": {},
-        "show_show_images": True,
-        "show_sort": "addedAt:desc",
-        "show_year_filter": "",
-        "show_title_filter": "",
-        "show_section": os.environ.get("PLEX_TV_SECTION_ID", "2"),
-        "show_lock_added": True,
         "ui_density": "Comfortable",
     }
+    defaults.update(
+        _library_state("movie", os.environ.get("PLEX_MOVIE_SECTION_ID", "1"))
+    )
+    defaults.update(_library_state("show", os.environ.get("PLEX_TV_SECTION_ID", "2")))
+    defaults.update(
+        _library_state("music", os.environ.get("PLEX_MUSIC_SECTION_ID", ""))
+    )
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
@@ -434,7 +472,7 @@ def _apply_density() -> None:
     st.markdown(css, unsafe_allow_html=True)
 
 
-def _controls(prefix: str, *, sections: List[dict], required_type: str) -> Dict:
+def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
     section_key = f"{prefix}_section"
     page_key = f"{prefix}_page"
     page_size_key = f"{prefix}_page_size"
@@ -444,12 +482,8 @@ def _controls(prefix: str, *, sections: List[dict], required_type: str) -> Dict:
     images_key = f"{prefix}_show_images"
     lock_key = f"{prefix}_lock_added"
 
-    # Section dropdown (filtered by type)
-    typed = [
-        s
-        for s in sections
-        if s.get("type") == ("movie" if required_type == "1" else "show")
-    ]
+    # Section dropdown (filtered by library type: movie, show, artist, ...)
+    typed = [s for s in sections if s.get("type") == section_type]
     labels = [f"{s['title']} (#{s['key']})" for s in typed]
     label_to_key = {f"{s['title']} (#{s['key']})": s["key"] for s in typed}
 
@@ -471,7 +505,7 @@ def _controls(prefix: str, *, sections: List[dict], required_type: str) -> Dict:
         else:
             st.text_input("Section ID", key=section_key)
     with r1c2:
-        st.selectbox("Page Size", [50, 100, 200], key=page_size_key)
+        st.selectbox("Page Size", list(PAGE_SIZE_OPTIONS), key=page_size_key)
     with r1c3:
         st.selectbox(
             "Sort",
@@ -592,8 +626,13 @@ def _render_items(
                         selected[rk] = False
                 st.success("Cleared selections on this page.")
     with mid:
+        batch_min, batch_max, _batch_value = _added_date_bounds(datetime.date.today())
         batch_date = st.date_input(
-            "Batch date", value=datetime.date.today(), key=f"{key_prefix}_batch_date"
+            "Batch date",
+            value=datetime.date.today(),
+            min_value=batch_min,
+            max_value=batch_max,
+            key=f"{key_prefix}_batch_date",
         )
         max_per_min = st.number_input(
             "Max/min (0=unlimited)",
@@ -763,9 +802,11 @@ def _render_items(
                     st.image(url, width=poster_w)
         with cols[1]:
             title = item.get("title", "Unknown")
+            artist = item.get("parentTitle")
             year = item.get("year")
             rel = item.get("originallyAvailableAt") or "-"
-            display = f"{title} ({year})" if year else title
+            name = f"{artist} — {title}" if artist else title
+            display = f"{name} ({year})" if year else name
             st.markdown(
                 f"<div class='title-row'><h3>{display}</h3></div>",
                 unsafe_allow_html=True,
@@ -797,9 +838,18 @@ def _render_items(
                 except Exception as e:  # noqa: BLE001
                     st.error(f"Failed to save {title}: {e}")
 
-            date_kwargs = {}
-            if date_key not in st.session_state:
-                date_kwargs["value"] = added_dt.date()
+            current_date = added_dt.date()
+            stored = st.session_state.get(date_key)
+            if isinstance(stored, datetime.datetime):
+                stored = stored.date()
+            if isinstance(stored, datetime.date):
+                current_date = stored
+            minimum, maximum, chosen = _added_date_bounds(current_date)
+            date_kwargs = {"min_value": minimum, "max_value": maximum}
+            if date_key in st.session_state:
+                st.session_state[date_key] = chosen
+            else:
+                date_kwargs["value"] = chosen
             st.date_input(
                 "Added", key=date_key, on_change=_on_change_inline, **date_kwargs
             )
@@ -835,6 +885,7 @@ def main() -> None:
                 if (
                     k.startswith("movie_")
                     or k.startswith("show_")
+                    or k.startswith("music_")
                     or k in {"ui_density"}
                 ):
                     st.session_state.pop(k, None)
@@ -889,130 +940,117 @@ def main() -> None:
         sections = []
         st.warning(f"Could not list library sections: {e}")
 
-    tab1, tab2 = st.tabs(["Movies", "TV Series"])  # TV Series == shows (type=2)
-
-    # Movies
-    with tab1:
-        cfg = _controls("movie", sections=sections, required_type="1")
-        _inject_sticky_filters(
-            "Movies",
-            top_offset_px=(
-                56
-                if st.session_state.get("ui_density") == "Spacious"
-                else (44 if st.session_state.get("ui_density") == "Compact" else 48)
-            ),
+    tab_movies, tab_shows, tab_music = st.tabs(["Movies", "TV Shows", "Music"])
+    with tab_movies:
+        _render_library_tab(
+            plex,
+            sections,
+            prefix="movie",
+            label="Movies",
+            section_type="movie",
+            type_id="1",
+            fallback_section_id="1",
+            empty_message="No movies found for current filters.",
         )
-        section_id = cfg["section_id"] or "1"
-        type_id = "1"
-
-        start = (int(cfg["page"]) - 1) * int(cfg["page_size"])
-        try:
-            items, total = _cached_fetch(
-                plex.base_url,
-                plex.token,
-                section_id,
-                type_id,
-                start,
-                int(cfg["page_size"]),
-                cfg["sort"],
-                cfg["year"] or "",
-            )
-        except Exception as e:
-            st.error(f"Failed to fetch items for section {section_id}: {e}")
-            items, total = [], 0
-
-        # Filter title (current page)
-        title_filter = (cfg["title"] or "").strip().lower()
-        if title_filter:
-            items = [i for i in items if title_filter in (i.get("title", "").lower())]
-
-        total_pages = max(
-            1, (total + int(cfg["page_size"]) - 1) // int(cfg["page_size"])
+    with tab_shows:
+        _render_library_tab(
+            plex,
+            sections,
+            prefix="show",
+            label="TV Shows",
+            section_type="show",
+            type_id="2",
+            fallback_section_id="2",
+            empty_message="No shows found for current filters.",
         )
-        _inject_fixed_pager("movie", "Movies", int(cfg["page"]), int(total_pages))
-        _handle_query_nav("movie", "movie_page", int(total_pages))
-        _nav("movie", "top", cfg, total_pages, total, "movie_page")
-
-        if items:
-            _render_items(
-                plex,
-                items,
-                type_id=type_id,
-                select_key="movie_selected",
-                key_prefix="movie",
-                show_images=cfg["show_images"],
-                lock_added=cfg["lock"],
-                section_id=section_id,
-                sort=cfg["sort"],
-                year=cfg["year"] or "",
-                title_filter=title_filter,
-                page_size=int(cfg["page_size"]),
-            )
-        else:
-            st.info("No movies found for current filters.")
-
-        _nav("movie", "bottom", cfg, total_pages, total, "movie_page")
-
-    # Shows
-    with tab2:
-        cfg = _controls("show", sections=sections, required_type="2")
-        _inject_sticky_filters(
-            "TV Series",
-            top_offset_px=(
-                56
-                if st.session_state.get("ui_density") == "Spacious"
-                else (44 if st.session_state.get("ui_density") == "Compact" else 48)
-            ),
+    with tab_music:
+        _render_library_tab(
+            plex,
+            sections,
+            prefix="music",
+            label="Music",
+            section_type="artist",
+            type_id="9",
+            fallback_section_id="",
+            empty_message="No albums found for current filters.",
         )
-        section_id = cfg["section_id"] or "2"
-        type_id = "2"
 
-        start = (int(cfg["page"]) - 1) * int(cfg["page_size"])
-        try:
-            items, total = _cached_fetch(
-                plex.base_url,
-                plex.token,
-                section_id,
-                type_id,
-                start,
-                int(cfg["page_size"]),
-                cfg["sort"],
-                cfg["year"] or "",
-            )
-        except Exception as e:
-            st.error(f"Failed to fetch items for section {section_id}: {e}")
-            items, total = [], 0
 
-        title_filter = (cfg["title"] or "").strip().lower()
-        if title_filter:
-            items = [i for i in items if title_filter in (i.get("title", "").lower())]
+def _render_library_tab(
+    plex: PlexAPI,
+    sections: List[dict],
+    *,
+    prefix: str,
+    label: str,
+    section_type: str,
+    type_id: str,
+    fallback_section_id: str,
+    empty_message: str,
+) -> None:
+    cfg = _controls(prefix, sections=sections, section_type=section_type)
+    _inject_sticky_filters(
+        label,
+        top_offset_px=(
+            56
+            if st.session_state.get("ui_density") == "Spacious"
+            else (44 if st.session_state.get("ui_density") == "Compact" else 48)
+        ),
+    )
+    section_id = cfg["section_id"] or fallback_section_id
+    if not section_id:
+        st.info(empty_message)
+        return
 
-        total_pages = max(
-            1, (total + int(cfg["page_size"]) - 1) // int(cfg["page_size"])
+    start = (int(cfg["page"]) - 1) * int(cfg["page_size"])
+    try:
+        items, total = _cached_fetch(
+            plex.base_url,
+            plex.token,
+            section_id,
+            type_id,
+            start,
+            int(cfg["page_size"]),
+            cfg["sort"],
+            cfg["year"] or "",
         )
-        _inject_fixed_pager("show", "TV Series", int(cfg["page"]), int(total_pages))
-        _handle_query_nav("show", "show_page", int(total_pages))
-        _nav("show", "top", cfg, total_pages, total, "show_page")
+    except Exception as e:
+        st.error(f"Failed to fetch items for section {section_id}: {e}")
+        items, total = [], 0
 
-        if items:
-            _render_items(
-                plex,
-                items,
-                type_id=type_id,
-                select_key="show_selected",
-                key_prefix="show",
-                show_images=cfg["show_images"],
-                lock_added=cfg["lock"],
-                section_id=section_id,
-                sort=cfg["sort"],
-                year=cfg["year"] or "",
-                title_filter=title_filter,
-                page_size=int(cfg["page_size"]),
-            )
-        else:
-            st.info("No shows found for current filters.")
+    title_filter = (cfg["title"] or "").strip().lower()
+    if title_filter:
+        items = [
+            i
+            for i in items
+            if title_filter
+            in f"{i.get('parentTitle', '')} {i.get('title', '')}".lower()
+        ]
 
-        _nav("show", "bottom", cfg, total_pages, total, "show_page")
+    total_pages = max(1, (total + int(cfg["page_size"]) - 1) // int(cfg["page_size"]))
+    page_key = f"{prefix}_page"
+    _inject_fixed_pager(prefix, label, int(cfg["page"]), int(total_pages))
+    _handle_query_nav(prefix, page_key, int(total_pages))
+    _nav(prefix, "top", cfg, total_pages, total, page_key)
+
+    if items:
+        _render_items(
+            plex,
+            items,
+            type_id=type_id,
+            select_key=f"{prefix}_selected",
+            key_prefix=prefix,
+            show_images=cfg["show_images"],
+            lock_added=cfg["lock"],
+            section_id=section_id,
+            sort=cfg["sort"],
+            year=cfg["year"] or "",
+            title_filter=title_filter,
+            page_size=int(cfg["page_size"]),
+        )
+    else:
+        st.info(empty_message)
+
+    _nav(prefix, "bottom", cfg, total_pages, total, page_key)
 
 
 def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
