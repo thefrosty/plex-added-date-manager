@@ -1,5 +1,7 @@
 [client]
-toolbarMode = "minimal"
+# Hide developer controls, including the Deploy button.
+# https://github.com/streamlit/streamlit/issues/9579
+toolbarMode = "viewer"
 
 [ui]
 hideTopBar = true
