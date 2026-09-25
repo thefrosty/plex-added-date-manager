@@ -30,4 +30,8 @@ jobs:
         run: ruff check --output-format=github .
 
       - name: Format check (black)
-        run: black --check .
+        uses: reviewdog/action-black@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review # Leaves comments directly on the PR diff
+          fail_on_error: true
