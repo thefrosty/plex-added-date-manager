@@ -8,6 +8,7 @@ Highlights
 """
 
 import datetime
+from zoneinfo import ZoneInfo
 import os
 import time
 from typing import Dict, List, Tuple
@@ -250,6 +251,28 @@ def _cached_fetch(
 PAGE_SIZE_OPTIONS = (20, 50, 100)
 
 
+def configured_timezone_name() -> str:
+    return os.environ.get("PLEX_TIMEZONE", "UTC").strip() or "UTC"
+
+
+def app_timezone() -> ZoneInfo:
+    name = configured_timezone_name()
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _today() -> datetime.date:
+    return datetime.datetime.now(app_timezone()).date()
+
+
+def _to_unix(value: datetime.date, *, end_of_day: bool = False) -> int:
+    clock = datetime.time.max if end_of_day else datetime.time.min
+    moment = datetime.datetime.combine(value, clock, tzinfo=app_timezone())
+    return int(moment.timestamp())
+
+
 def _twenty_years_ago(today: datetime.date) -> datetime.date:
     try:
         return today.replace(year=today.year - 20)
@@ -265,7 +288,7 @@ def _added_date_bounds(
     The calendar always reaches 20 years before today and never past today.
     An added date older than that stays visible so the control can still render.
     """
-    today = datetime.date.today()
+    today = _today()
     earliest = min(_twenty_years_ago(today), value)
     chosen = min(max(value, earliest), today)
     return earliest, today, chosen
@@ -461,10 +484,10 @@ def _render_items(
                         selected[rk] = False
                 st.success("Cleared selections on this page.")
     with mid:
-        batch_min, batch_max, _batch_value = _added_date_bounds(datetime.date.today())
+        batch_min, batch_max, _batch_value = _added_date_bounds(_today())
         batch_date = st.date_input(
             "Batch date",
-            value=datetime.date.today(),
+            value=_today(),
             min_value=batch_min,
             max_value=batch_max,
             key=f"{key_prefix}_batch_date",
@@ -482,9 +505,7 @@ def _render_items(
             if not keys:
                 st.warning("No items selected.")
             else:
-                new_unix = int(
-                    datetime.datetime.combine(batch_date, datetime.time.min).timestamp()
-                )
+                new_unix = _to_unix(batch_date)
                 total_sel = len(keys)
                 progress = st.progress(0)
                 successes = 0
@@ -524,7 +545,7 @@ def _render_items(
     # Date range selection (advanced)
     with st.expander("Select by Added date range", expanded=False):
         presets = st.columns([1, 1, 1, 1, 1, 1, 1])
-        today = datetime.date.today()
+        today = _today()
         # Preset handlers
         preset_actions = {
             "Last 7": (today - datetime.timedelta(days=7), today),
@@ -571,12 +592,8 @@ def _render_items(
         act1, act2 = st.columns(2)
 
         def _select_range(select: bool):
-            start_ts = int(
-                datetime.datetime.combine(range_from, datetime.time.min).timestamp()
-            )
-            end_ts = int(
-                datetime.datetime.combine(range_to, datetime.time.max).timestamp()
-            )
+            start_ts = _to_unix(range_from)
+            end_ts = _to_unix(range_to, end_of_day=True)
             progress = st.progress(0)
             touched = 0
             try:
@@ -650,18 +667,18 @@ def _render_items(
             # Added (inline editable)
             added_at = item.get("addedAt")
             if added_at:
-                added_dt = datetime.datetime.fromtimestamp(int(added_at))
+                added_dt = datetime.datetime.fromtimestamp(
+                    int(added_at), tz=app_timezone()
+                )
             else:
-                added_dt = datetime.datetime.now()
+                added_dt = datetime.datetime.now(app_timezone())
 
             date_key = f"{key_prefix}_date_{rating_key}"
 
             def _on_change_inline(rk=rating_key, date_key=date_key, title=title):
                 try:
                     d = st.session_state[date_key]
-                    new_unix = int(
-                        datetime.datetime.combine(d, datetime.time.min).timestamp()
-                    )
+                    new_unix = _to_unix(d)
                     plex.update_added_date(
                         section_id, rk, type_id, new_unix, lock=lock_added
                     )
@@ -690,9 +707,20 @@ def _render_items(
                 "Added", key=date_key, on_change=_on_change_inline, **date_kwargs
             )
 
+            if added_at:
+                added_on = datetime.datetime.fromtimestamp(
+                    int(added_at), tz=app_timezone()
+                )
+                added_on_label = added_on.strftime("%Y-%m-%d %HH:%M %Z")
+            else:
+                added_on_label = "-"
             # Secondary info chips
             st.markdown(
-                f"<span class='chip'>Release {rel}</span> <span class='chip'>ID {rating_key}</span>",
+                f"""
+                <span class='chip'>Release: {rel}</span>
+                <span class='chip'>ID: {rating_key}</span>
+                <span class='chip'>Added On: {added_on_label}</span>
+                """,
                 unsafe_allow_html=True,
             )
 
@@ -724,6 +752,13 @@ def main() -> None:
     _init_state()
 
     plex = PlexAPI()
+    tz_name = configured_timezone_name()
+    try:
+        ZoneInfo(tz_name)
+    except Exception:
+        st.warning(
+            f"PLEX_TIMEZONE {tz_name!r} is not a recognized timezone. Using UTC."
+        )
     if not plex.base_url or not plex.token:
         st.error("Missing PLEX_BASE_URL or PLEX_TOKEN in environment (.env).")
         st.stop()
@@ -784,7 +819,6 @@ def _render_library_tab(
     empty_message: str,
 ) -> None:
     cfg = _controls(prefix, sections=sections, section_type=section_type)
-    # _inject_sticky_filters(label, top_offset_px=48)
     section_id = cfg["section_id"] or fallback_section_id
     if not section_id:
         st.info(empty_message)
@@ -840,61 +874,6 @@ def _render_library_tab(
         st.info(empty_message)
 
     _nav(prefix, "bottom", cfg, total_pages, total, page_key)
-
-
-def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
-    tpl = Template("""
-        <script>
-          (function(){
-            const tabLabel = "$tab";
-            function activeTab(){
-              const t = parent.document.querySelector('button[role="radio"][aria-selected="true"]');
-              return t ? t.innerText.trim() : '';
-            }
-            function getActivePanel(){
-              const tabs = parent.document.querySelectorAll('button[role="radio"]');
-              let idx = -1;
-              tabs.forEach((t,i)=>{ if(t.getAttribute('aria-selected')==='true') idx=i; });
-              const panels = parent.document.querySelectorAll('div[role="tabpanel"]');
-              return (idx>=0 && panels[idx])? panels[idx] : null;
-            }
-            function makeSticky(){
-              const tabs = parent.document.querySelectorAll('button[role="radio"]');
-              if(tabs.length && activeTab()!==tabLabel) return;
-              const panel = tabs.length
-                ? getActivePanel()
-                : (parent.document.querySelector('[data-testid="stMainBlockContainer"]')
-                  || parent.document.querySelector('[data-testid="stMain"]'));
-              if(!panel) return;
-              const btns = panel.querySelectorAll('button');
-              let resetBtn = null;
-              btns.forEach(b=>{ if((b.innerText||'').trim()==='Reset Filters') resetBtn=b; });
-              if(!resetBtn) return;
-              let node = resetBtn.parentElement;
-              for(let i=0; i<8 && node; i++){
-                if(node.getAttribute && (node.getAttribute('data-testid')==='stHorizontalBlock' || node.getAttribute('data-testid')==='stVerticalBlock')) break;
-                node = node.parentElement;
-              }
-              if(!node) return;
-              node.style.position = 'sticky';
-              node.style.top = '$toppx';
-              node.style.zIndex = '900';
-              node.style.background = 'rgba(255,255,255,0.96)';
-              node.style.backdropFilter = 'blur(2px)';
-              node.style.borderBottom = '1px solid #e5e7eb';
-              node.style.paddingTop = '6px';
-              node.style.paddingBottom = '6px';
-            }
-            setTimeout(makeSticky, 50);
-            setInterval(makeSticky, 500);
-          })();
-        </script>
-        """)
-    html = tpl.safe_substitute(tab=str(tab_label), toppx=f"{int(top_offset_px)}px")
-    try:
-        _embed_html(html)
-    except Exception:
-        pass
 
 
 if __name__ == "__main__":

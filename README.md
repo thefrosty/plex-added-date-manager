@@ -29,6 +29,8 @@ When Plex requires secure connections, its certificate is issued for a `plex.dir
 
 `PLEX_PAGE_SIZE` is the page size selected on first load. It must be `20`, `50`, or `100`, and it defaults to `20`.
 
+`PLEX_TIMEZONE` is an IANA timezone name, such as `America/Los_Angeles`. Added dates are shown and saved in that zone. It defaults to `UTC`.
+
 Stop the app with Ctrl+C, then:
 
 ```bash
