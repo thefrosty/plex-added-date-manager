@@ -21,7 +21,7 @@ def main():
 
         # Display movies
         if movies:
-            section_id = "1"
+            section_id = plex.movie_section_id
             type_id = "1" 
             for movie in movies:
                 cols = st.columns([1, 2])
@@ -61,7 +61,7 @@ def main():
 
     # --- TV Series Tab ---
     with tab2:
-        section_id = "2" 
+        section_id = plex.tv_section_id
         type_id = "2"
         seasons = plex.fetch_seasons(section_id)
         seasons = sorted(seasons, key=lambda s: int(s.get('addedAt', 0)), reverse=True)
