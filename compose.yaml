@@ -1,0 +1,12 @@
+services:
+
+  app:
+    build: .
+    image: plex-added-date-manager
+    ports:
+      - "127.0.0.1:8501:8501"
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
