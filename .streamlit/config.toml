@@ -5,3 +5,7 @@ toolbarMode = "viewer"
 
 [ui]
 hideTopBar = true
+
+[server]
+runOnSave = true
+fileWatcherType = "poll"

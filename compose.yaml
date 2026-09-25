@@ -5,8 +5,8 @@ services:
     image: plex-added-date-manager
     ports:
       - "127.0.0.1:8501:8501"
-    env_file:
-      - path: .env
-        required: false
+    env_file: .env
+    volumes:
+      - ./src:/app/src
     extra_hosts:
       - "host.docker.internal:host-gateway"
