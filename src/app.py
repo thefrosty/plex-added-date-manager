@@ -722,6 +722,7 @@ def _render_items(
                 added_on_label = added_on.strftime("%Y-%m-%d %HH:%M %Z")
             else:
                 added_on_label = "-"
+
             # Secondary info chips
             st.markdown(
                 f"""
