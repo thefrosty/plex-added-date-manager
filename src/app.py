@@ -15,69 +15,13 @@ from typing import Dict, List, Tuple
 import streamlit as st
 
 from plex_api import PlexAPI
-from streamlit import components
 from string import Template
 
 st.set_page_config(page_title="Plex Added Date Manager", layout="wide")
 
 
-def _maybe_apply_density_from_query() -> None:
-    try:
-        qp = dict(st.query_params)
-    except Exception:
-        try:
-            qp = st.experimental_get_query_params()  # type: ignore[attr-defined]
-        except Exception:
-            qp = {}
-    if not qp:
-        return
-    raw = qp.get("ui_density")
-    valid = {"Ultra Compact", "Compact", "Comfortable", "Spacious"}
-    val = raw[0] if isinstance(raw, list) else raw
-    if val and val in valid:
-        st.session_state["ui_density"] = val
-        try:
-            st.query_params.clear()
-            for k, v in qp.items():
-                if k == "ui_density":
-                    continue
-                st.query_params[k] = v
-        except Exception:
-            try:
-                qp2 = {
-                    k: (v[0] if isinstance(v, list) else v)
-                    for k, v in qp.items()
-                    if k != "ui_density"
-                }
-                st.experimental_set_query_params(**qp2)  # type: ignore[attr-defined]
-            except Exception:
-                pass
-
-
-def _inject_density_bootstrap() -> None:
-    cur = st.session_state.get("ui_density", "Comfortable")
-    html = f"""
-    <script>
-      (function(){{
-        try {{
-          const serverDensity = {cur!r};
-          const bootKey = 'ui_density_boot';
-          const ls = localStorage.getItem('ui_density');
-          const booted = sessionStorage.getItem(bootKey);
-          if (ls && !booted && ls !== serverDensity) {{
-            const url = new URL(parent.location);
-            url.searchParams.set('ui_density', ls);
-            sessionStorage.setItem(bootKey, '1');
-            parent.location.replace(url.toString());
-          }}
-        }} catch(e){{}}
-      }})();
-    </script>
-    """
-    try:
-        components.v1.html(html, height=0)  # type: ignore[attr-defined]
-    except Exception:
-        pass
+def _embed_html(html: str, *, height: int = 0, width: str = "content") -> None:
+    st.iframe(html, width=width, height=height)
 
 
 # Lightweight styling
@@ -91,6 +35,13 @@ st.markdown(
     /* Leave room for fixed mini-pager at top */
     .block-container { padding-top: 3.0rem; }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <style>.stDeployButton { visibility: hidden; }</style>
     """,
     unsafe_allow_html=True,
 )
@@ -203,21 +154,10 @@ def _handle_query_nav(prefix: str, page_state_key: str, total_pages: int) -> Non
 def _inject_fixed_pager(
     prefix: str, tab_label: str, page: int, total_pages: int
 ) -> None:
-    # Size bar using current density
-    density = st.session_state.get("ui_density", "Comfortable")
-    nav_h = {"Ultra Compact": 40, "Compact": 44, "Comfortable": 48, "Spacious": 56}.get(
-        density, 48
-    )
-    font_px = {
-        "Ultra Compact": 12,
-        "Compact": 12,
-        "Comfortable": 13,
-        "Spacious": 14,
-    }.get(density, 13)
-    muted_px = max(font_px - 1, 11)
-    pad_v = {"Ultra Compact": 4, "Compact": 6, "Comfortable": 6, "Spacious": 8}.get(
-        density, 6
-    )
+    nav_h = 48
+    font_px = 13
+    muted_px = 12
+    pad_v = 6
     tpl = Template("""
         <style>
           #fixed-pager-$prefix {
@@ -247,10 +187,14 @@ def _inject_fixed_pager(
             const prefix = "$prefix";
             const root = document.getElementById('fixed-pager-'+prefix);
             function activeTab(){
-              const t = parent.document.querySelector('button[role="tab"][aria-selected="true"]');
+              const t = parent.document.querySelector('button[role="radio"][aria-selected="true"]');
               return t ? t.innerText.trim() : '';
             }
-            function showIfActive(){ root.style.display = (activeTab()===tabLabel)?'flex':'none'; }
+            function showIfActive(){
+              const tabs = parent.document.querySelectorAll('button[role="radio"]');
+              if (!tabs.length) { root.style.display = 'flex'; return; }
+              root.style.display = (activeTab()===tabLabel)?'flex':'none';
+            }
             function setParam(k,v){
               try {
                 const url = new URL(parent.location);
@@ -262,7 +206,7 @@ def _inject_fixed_pager(
             root.querySelector('.next').addEventListener('click', ()=> setParam(prefix+'_nav','next'));
             root.querySelector('.go').addEventListener('click', ()=> { const v = root.querySelector('.goto').value; if(v) setParam(prefix+'_goto', v); });
             window.addEventListener('keydown', (e)=>{
-              if (activeTab()!==tabLabel) return;
+              if (parent.document.querySelector('button[role="radio"]') && activeTab()!==tabLabel) return;
               if (e.key==='ArrowLeft') setParam(prefix+'_nav','prev');
               if (e.key==='ArrowRight') setParam(prefix+'_nav','next');
               if (e.key==='Enter') {
@@ -287,7 +231,7 @@ def _inject_fixed_pager(
         pad_v=str(pad_v),
     )
     try:
-        components.v1.html(html, height=nav_h)  # type: ignore[attr-defined]
+        _embed_html(html, height=nav_h, width="stretch")
     except Exception:
         pass
 
@@ -350,7 +294,6 @@ def _library_state(prefix: str, section_id: str) -> Dict:
         f"{prefix}_page": 1,
         f"{prefix}_page_size": _default_page_size(),
         f"{prefix}_selected": {},
-        f"{prefix}_show_images": True,
         f"{prefix}_sort": "addedAt:desc",
         f"{prefix}_year_filter": "",
         f"{prefix}_title_filter": "",
@@ -360,9 +303,8 @@ def _library_state(prefix: str, section_id: str) -> Dict:
 
 
 def _init_state() -> None:
-    defaults = {
-        "ui_density": "Comfortable",
-    }
+    st.session_state.setdefault("show_images", True)
+    defaults = {}
     defaults.update(
         _library_state("movie", os.environ.get("PLEX_MOVIE_SECTION_ID", "1"))
     )
@@ -374,104 +316,6 @@ def _init_state() -> None:
         st.session_state.setdefault(k, v)
 
 
-def _apply_density() -> None:
-    """Apply global, density-aware CSS tokens for the whole UI.
-
-    Scales spacing, control sizes, typography, and chrome consistently.
-    Keeps legacy values working for "Ultra Compact".
-    """
-    density = st.session_state.get("ui_density", "Comfortable")
-
-    if density not in {"Ultra Compact", "Compact", "Comfortable", "Spacious"}:
-        density = "Comfortable"
-
-    tokens = {
-        "Ultra Compact": {
-            "scale": 0.8,
-            "control_h": 28,
-            "nav_h": 40,
-            "icon": 14,
-            "radius": 6,
-        },
-        "Compact": {
-            "scale": 0.9,
-            "control_h": 32,
-            "nav_h": 44,
-            "icon": 16,
-            "radius": 7,
-        },
-        "Comfortable": {
-            "scale": 1.0,
-            "control_h": 36,
-            "nav_h": 48,
-            "icon": 16,
-            "radius": 8,
-        },
-        "Spacious": {
-            "scale": 1.15,
-            "control_h": 44,
-            "nav_h": 56,
-            "icon": 18,
-            "radius": 10,
-        },
-    }[density]
-
-    scale = tokens["scale"]
-    control_h = tokens["control_h"]
-    nav_h = tokens["nav_h"]
-    icon = tokens["icon"]
-    radius = tokens["radius"]
-
-    s1 = int(round(4 * scale))
-    s2 = int(round(8 * scale))
-    s3 = int(round(12 * scale))
-    s4 = int(round(16 * scale))
-
-    t100 = max(12, int(round(12 * scale)))
-    t200 = max(13, int(round(14 * scale)))
-
-    css = f"""
-    <style>
-      :root {{
-        --density: '{density}';
-        --scale: {scale};
-        --space-1: {s1}px;
-        --space-2: {s2}px;
-        --space-3: {s3}px;
-        --space-4: {s4}px;
-        --radius: {radius}px;
-        --control-h: {control_h}px;
-        --icon: {icon}px;
-        --nav-h: {nav_h}px;
-        --type-100: {t100}px;
-        --type-200: {t200}px;
-      }}
-
-      .block-container {{ padding-top: calc(var(--nav-h) + var(--space-2)); }}
-      [data-testid="stHeader"] {{ height: var(--nav-h) !important; }}
-
-      .title-row h3 {{ margin-bottom: 2px; font-size: calc(var(--type-200)); }}
-      .meta {{ color:#6b7280; font-size: calc(var(--type-100) * 0.95); margin: 4px 0 0; }}
-      .chip {{ display:inline-block; background:#eef2ff; color:#3730a3; padding:2px var(--space-2); border-radius:12px; font-size: calc(var(--type-100) * 0.9); margin-right: var(--space-2); }}
-
-      .stButton button {{ height: var(--control-h); padding: 0 var(--space-3); font-size: calc(var(--type-200)); border-radius: var(--radius); }}
-      div[data-baseweb="select"] > div {{ min-height: var(--control-h); }}
-      .stSelectbox label, .stTextInput label, .stDateInput label, .stNumberInput label {{ font-size: calc(var(--type-100)); margin-bottom: 0.2rem; }}
-      .stTextInput input, .stNumberInput input, .stDateInput input {{ height: var(--control-h); font-size: calc(var(--type-200)); }}
-      .stCheckbox label {{ font-size: calc(var(--type-200)); }}
-
-      div[data-testid="stHorizontalBlock"] > div {{ padding-right: var(--space-2); }}
-      div[data-testid="stVerticalBlock"] > div {{ margin-bottom: var(--space-3); }}
-    </style>
-    <script>
-      try {{ parent.document.documentElement.dataset.density = '{density}'.toLowerCase().replace(' ', '-'); }} catch(e) {{}}
-      try {{ localStorage.setItem('ui_density', '{density}'); }} catch(e) {{}}
-    </script>
-    """
-
-    st.markdown(css, unsafe_allow_html=True)
-
-
 def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
     section_key = f"{prefix}_section"
     page_key = f"{prefix}_page"
@@ -479,7 +323,6 @@ def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
     sort_key = f"{prefix}_sort"
     year_key = f"{prefix}_year_filter"
     title_key = f"{prefix}_title_filter"
-    images_key = f"{prefix}_show_images"
     lock_key = f"{prefix}_lock_added"
 
     # Section dropdown (filtered by library type: movie, show, artist, ...)
@@ -524,7 +367,7 @@ def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
     with r1c5:
         st.text_input("Title contains", key=title_key)
     with r1c6:
-        st.checkbox("Show images", key=images_key)
+        st.checkbox("Show images", key="show_images", persist_state="session")
 
     r2c1, r2c2, r2c3 = st.columns([1, 1, 3])
     with r2c1:
@@ -545,7 +388,7 @@ def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
         "sort": st.session_state[sort_key],
         "year": st.session_state[year_key],
         "title": st.session_state[title_key],
-        "show_images": st.session_state[images_key],
+        "show_images": st.session_state["show_images"],
         "lock": st.session_state[lock_key],
     }
 
@@ -565,9 +408,8 @@ def _render_items(
     title_filter: str,
     page_size: int,
 ) -> None:
-    density = st.session_state.get("ui_density", "Comfortable")
-    cols_widths = [0.16, 0.84] if density == "Compact" else [0.2, 0.8]
-    poster_w = 80 if density == "Compact" else 110
+    cols_widths = [0.2, 0.8]
+    poster_w = 110
     selected: Dict[str, bool] = st.session_state.setdefault(select_key, {})
 
     # Batch controls
@@ -830,11 +672,12 @@ def _render_items(
                     plex.update_added_date(
                         section_id, rk, type_id, new_unix, lock=lock_added
                     )
-                    (
+                    # Keep this a statement. A parenthesized expression here is
+                    # rewritten by Streamlit magic and fails to parse.
+                    if hasattr(st, "toast"):
                         st.toast(f"Saved {title}")
-                        if hasattr(st, "toast")
-                        else st.success(f"Saved {title}")
-                    )
+                    else:
+                        st.success(f"Saved {title}")
                 except Exception as e:  # noqa: BLE001
                     st.error(f"Failed to save {title}: {e}")
 
@@ -862,35 +705,21 @@ def _render_items(
 
 
 def main() -> None:
-    # Density persistence (localStorage → query) and initial hydrate
-    _maybe_apply_density_from_query()
-    _inject_density_bootstrap()
-    # Header row with density selector and Settings link
-    hdr_l, hdr_c, hdr_r, hdr_s = st.columns([3, 1, 1, 1])
+    hdr_l, hdr_r = st.columns([4, 1])
     with hdr_l:
         st.markdown(
             "<h3 style='margin-bottom:0.25rem'>Plex Added Date Manager</h3>",
             unsafe_allow_html=True,
         )
-    with hdr_c:
-        st.selectbox(
-            "Density",
-            ["Comfortable", "Compact", "Ultra Compact", "Spacious"],
-            key="ui_density",
-        )
     with hdr_r:
         if st.button("Reset All"):
-            # Reset common keys
             for k in list(st.session_state.keys()):
                 if (
                     k.startswith("movie_")
                     or k.startswith("show_")
                     or k.startswith("music_")
-                    or k in {"ui_density"}
                 ):
                     st.session_state.pop(k, None)
-            st.session_state["ui_density"] = "Comfortable"
-            # Clear nav query params
             try:
                 st.query_params.clear()
             except Exception:
@@ -899,34 +728,6 @@ def main() -> None:
                 except Exception:
                     pass
             st.rerun()
-    with hdr_s:
-        if st.button("Settings", help="Open preferences (density defaults)"):
-            st.session_state["ui_show_settings"] = not st.session_state.get(
-                "ui_show_settings", False
-            )
-            _safe_rerun()
-    # Settings expander
-    with st.expander(
-        "Settings", expanded=bool(st.session_state.get("ui_show_settings", False))
-    ):
-        st.checkbox(
-            "Prefer Spacious on touch",
-            key="ui_ptr_default",
-            help="When enabled (default), new sessions on touch devices start in Spacious if no saved density exists.",
-        )
-        if st.button("Reset density only"):
-            st.session_state["ui_density"] = "Comfortable"
-            try:
-                components.v1.html(
-                    """
-                  <script> try { localStorage.removeItem('ui_density'); } catch(e) {} </script>
-                """,
-                    height=0,
-                )  # type: ignore[attr-defined]
-            except Exception:
-                pass
-            _safe_rerun()
-    _apply_density()
     _init_state()
 
     plex = PlexAPI()
@@ -940,40 +741,42 @@ def main() -> None:
         sections = []
         st.warning(f"Could not list library sections: {e}")
 
-    tab_movies, tab_shows, tab_music = st.tabs(["Movies", "TV Shows", "Music"])
-    with tab_movies:
-        _render_library_tab(
-            plex,
-            sections,
-            prefix="movie",
-            label="Movies",
-            section_type="movie",
-            type_id="1",
-            fallback_section_id="1",
-            empty_message="No movies found for current filters.",
-        )
-    with tab_shows:
-        _render_library_tab(
-            plex,
-            sections,
-            prefix="show",
-            label="TV Shows",
-            section_type="show",
-            type_id="2",
-            fallback_section_id="2",
-            empty_message="No shows found for current filters.",
-        )
-    with tab_music:
-        _render_library_tab(
-            plex,
-            sections,
-            prefix="music",
-            label="Music",
-            section_type="artist",
-            type_id="9",
-            fallback_section_id="",
-            empty_message="No albums found for current filters.",
-        )
+    libraries = {
+        "Movies": {
+            "prefix": "movie",
+            "section_type": "movie",
+            "type_id": "1",
+            "fallback_section_id": "1",
+            "empty_message": "No movies found for current filters.",
+        },
+        "TV Shows": {
+            "prefix": "show",
+            "section_type": "show",
+            "type_id": "2",
+            "fallback_section_id": "2",
+            "empty_message": "No shows found for current filters.",
+        },
+        "Music": {
+            "prefix": "music",
+            "section_type": "artist",
+            "type_id": "9",
+            "fallback_section_id": "",
+            "empty_message": "No albums found for current filters.",
+        },
+    }
+    if st.session_state.get("active_library_tab") not in libraries:
+        st.session_state["active_library_tab"] = "Movies"
+    selected = st.segmented_control(
+        "Library",
+        list(libraries),
+        key="active_library_tab",
+        label_visibility="collapsed",
+        width="stretch",
+        required=True,
+    )
+    if selected not in libraries:
+        selected = "Movies"
+    _render_library_tab(plex, sections, label=selected, **libraries[selected])
 
 
 def _render_library_tab(
@@ -988,14 +791,7 @@ def _render_library_tab(
     empty_message: str,
 ) -> None:
     cfg = _controls(prefix, sections=sections, section_type=section_type)
-    _inject_sticky_filters(
-        label,
-        top_offset_px=(
-            56
-            if st.session_state.get("ui_density") == "Spacious"
-            else (44 if st.session_state.get("ui_density") == "Compact" else 48)
-        ),
-    )
+    # _inject_sticky_filters(label, top_offset_px=48)
     section_id = cfg["section_id"] or fallback_section_id
     if not section_id:
         st.info(empty_message)
@@ -1059,19 +855,23 @@ def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
           (function(){
             const tabLabel = "$tab";
             function activeTab(){
-              const t = parent.document.querySelector('button[role="tab"][aria-selected="true"]');
+              const t = parent.document.querySelector('button[role="radio"][aria-selected="true"]');
               return t ? t.innerText.trim() : '';
             }
             function getActivePanel(){
-              const tabs = parent.document.querySelectorAll('button[role="tab"]');
+              const tabs = parent.document.querySelectorAll('button[role="radio"]');
               let idx = -1;
               tabs.forEach((t,i)=>{ if(t.getAttribute('aria-selected')==='true') idx=i; });
               const panels = parent.document.querySelectorAll('div[role="tabpanel"]');
               return (idx>=0 && panels[idx])? panels[idx] : null;
             }
             function makeSticky(){
-              if(activeTab()!==tabLabel) return;
-              const panel = getActivePanel();
+              const tabs = parent.document.querySelectorAll('button[role="radio"]');
+              if(tabs.length && activeTab()!==tabLabel) return;
+              const panel = tabs.length
+                ? getActivePanel()
+                : (parent.document.querySelector('[data-testid="stMainBlockContainer"]')
+                  || parent.document.querySelector('[data-testid="stMain"]'));
               if(!panel) return;
               const btns = panel.querySelectorAll('button');
               let resetBtn = null;
@@ -1099,7 +899,7 @@ def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
         """)
     html = tpl.safe_substitute(tab=str(tab_label), toppx=f"{int(top_offset_px)}px")
     try:
-        components.v1.html(html, height=0)  # type: ignore[attr-defined]
+        _embed_html(html)
     except Exception:
         pass
 
