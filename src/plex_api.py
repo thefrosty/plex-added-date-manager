@@ -20,6 +20,7 @@ class PlexAPI:
         self.token = token or ""
         self.movie_section_id = os.environ.get("PLEX_MOVIE_SECTION_ID", "1")
         self.tv_section_id = os.environ.get("PLEX_TV_SECTION_ID", "2")
+        self.music_section_id = os.environ.get("PLEX_MUSIC_SECTION_ID", "")
         self.session = self._build_session()
 
     def _build_session(self) -> Session:
