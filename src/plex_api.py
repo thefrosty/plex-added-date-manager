@@ -12,6 +12,8 @@ class PlexAPI:
             token = os.environ.get("PLEX_TOKEN")
         self.base_url = base_url
         self.token = token
+        self.movie_section_id = os.environ.get("PLEX_MOVIE_SECTION_ID", "1")
+        self.tv_section_id = os.environ.get("PLEX_TV_SECTION_ID", "2")
 
     def _get_headers(self):
         return {
@@ -20,7 +22,7 @@ class PlexAPI:
         }
 
     def fetch_movies(self):
-        url = f"{self.base_url}/library/sections/1/all"
+        url = f"{self.base_url}/library/sections/{self.movie_section_id}/all"
         response = requests.get(url, headers=self._get_headers())
         if response.status_code == 200:
             return response.json().get('MediaContainer', {}).get('Metadata', [])
