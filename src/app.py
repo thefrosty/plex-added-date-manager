@@ -313,6 +313,27 @@ def _cached_fetch(
 PAGE_SIZE_OPTIONS = (20, 50, 100)
 
 
+def _twenty_years_ago(today: datetime.date) -> datetime.date:
+    try:
+        return today.replace(year=today.year - 20)
+    except ValueError:
+        return today.replace(year=today.year - 20, day=28)
+
+
+def _added_date_bounds(
+    value: datetime.date,
+) -> Tuple[datetime.date, datetime.date, datetime.date]:
+    """Return the earliest selectable date, today, and a value inside that span.
+
+    The calendar always reaches 20 years before today and never past today.
+    An added date older than that stays visible so the control can still render.
+    """
+    today = datetime.date.today()
+    earliest = min(_twenty_years_ago(today), value)
+    chosen = min(max(value, earliest), today)
+    return earliest, today, chosen
+
+
 def _default_page_size() -> int:
     raw = os.environ.get("PLEX_PAGE_SIZE", "20")
     try:
@@ -605,8 +626,13 @@ def _render_items(
                         selected[rk] = False
                 st.success("Cleared selections on this page.")
     with mid:
+        batch_min, batch_max, _batch_value = _added_date_bounds(datetime.date.today())
         batch_date = st.date_input(
-            "Batch date", value=datetime.date.today(), key=f"{key_prefix}_batch_date"
+            "Batch date",
+            value=datetime.date.today(),
+            min_value=batch_min,
+            max_value=batch_max,
+            key=f"{key_prefix}_batch_date",
         )
         max_per_min = st.number_input(
             "Max/min (0=unlimited)",
@@ -812,9 +838,18 @@ def _render_items(
                 except Exception as e:  # noqa: BLE001
                     st.error(f"Failed to save {title}: {e}")
 
-            date_kwargs = {}
-            if date_key not in st.session_state:
-                date_kwargs["value"] = added_dt.date()
+            current_date = added_dt.date()
+            stored = st.session_state.get(date_key)
+            if isinstance(stored, datetime.datetime):
+                stored = stored.date()
+            if isinstance(stored, datetime.date):
+                current_date = stored
+            minimum, maximum, chosen = _added_date_bounds(current_date)
+            date_kwargs = {"min_value": minimum, "max_value": maximum}
+            if date_key in st.session_state:
+                st.session_state[date_key] = chosen
+            else:
+                date_kwargs["value"] = chosen
             st.date_input(
                 "Added", key=date_key, on_change=_on_change_inline, **date_kwargs
             )
