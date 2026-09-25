@@ -15,10 +15,13 @@ from typing import Dict, List, Tuple
 import streamlit as st
 
 from plex_api import PlexAPI
-from streamlit import components
 from string import Template
 
 st.set_page_config(page_title="Plex Added Date Manager", layout="wide")
+
+
+def _embed_html(html: str, *, height: int = 0, width: str = "content") -> None:
+    st.iframe(html, width=width, height=height)
 
 
 def _maybe_apply_density_from_query() -> None:
@@ -64,10 +67,10 @@ def _inject_tab_memory() -> None:
         parentWin.__plexTabMemory = true;
         const key = 'plex_active_tab';
         function tabButtons(){
-          return parentWin.document.querySelectorAll('button[role="tab"]');
+          return parentWin.document.querySelectorAll('[role="tab"]');
         }
         function selectedLabel(){
-          const current = parentWin.document.querySelector('button[role="tab"][aria-selected="true"]');
+          const current = parentWin.document.querySelector('[role="tab"][aria-selected="true"]');
           return current ? (current.innerText || '').trim() : '';
         }
         function restore(){
@@ -84,7 +87,7 @@ def _inject_tab_memory() -> None:
         }
         parentWin.document.addEventListener('click', function(event){
           const target = event.target;
-          const button = target && target.closest ? target.closest('button[role="tab"]') : null;
+          const button = target && target.closest ? target.closest('[role="tab"]') : null;
           if (!button) return;
           try { localStorage.setItem(key, (button.innerText || '').trim()); } catch(e) {}
         }, true);
@@ -94,7 +97,7 @@ def _inject_tab_memory() -> None:
     </script>
     """
     try:
-        components.v1.html(html, height=0)  # type: ignore[attr-defined]
+        _embed_html(html)
     except Exception:
         pass
 
@@ -120,7 +123,7 @@ def _inject_density_bootstrap() -> None:
     </script>
     """
     try:
-        components.v1.html(html, height=0)  # type: ignore[attr-defined]
+        _embed_html(html)
     except Exception:
         pass
 
@@ -292,7 +295,7 @@ def _inject_fixed_pager(
             const prefix = "$prefix";
             const root = document.getElementById('fixed-pager-'+prefix);
             function activeTab(){
-              const t = parent.document.querySelector('button[role="tab"][aria-selected="true"]');
+              const t = parent.document.querySelector('[role="tab"][aria-selected="true"]');
               return t ? t.innerText.trim() : '';
             }
             function showIfActive(){ root.style.display = (activeTab()===tabLabel)?'flex':'none'; }
@@ -332,7 +335,7 @@ def _inject_fixed_pager(
         pad_v=str(pad_v),
     )
     try:
-        components.v1.html(html, height=nav_h)  # type: ignore[attr-defined]
+        _embed_html(html, height=nav_h, width="stretch")
     except Exception:
         pass
 
@@ -964,12 +967,9 @@ def main() -> None:
         if st.button("Reset density only"):
             st.session_state["ui_density"] = "Comfortable"
             try:
-                components.v1.html(
-                    """
+                _embed_html("""
                   <script> try { localStorage.removeItem('ui_density'); } catch(e) {} </script>
-                """,
-                    height=0,
-                )  # type: ignore[attr-defined]
+                """)
             except Exception:
                 pass
             _safe_rerun()
@@ -1106,11 +1106,11 @@ def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
           (function(){
             const tabLabel = "$tab";
             function activeTab(){
-              const t = parent.document.querySelector('button[role="tab"][aria-selected="true"]');
+              const t = parent.document.querySelector('[role="tab"][aria-selected="true"]');
               return t ? t.innerText.trim() : '';
             }
             function getActivePanel(){
-              const tabs = parent.document.querySelectorAll('button[role="tab"]');
+              const tabs = parent.document.querySelectorAll('[role="tab"]');
               let idx = -1;
               tabs.forEach((t,i)=>{ if(t.getAttribute('aria-selected')==='true') idx=i; });
               const panels = parent.document.querySelectorAll('div[role="tabpanel"]');
@@ -1146,7 +1146,7 @@ def _inject_sticky_filters(tab_label: str, top_offset_px: int = 48) -> None:
         """)
     html = tpl.safe_substitute(tab=str(tab_label), toppx=f"{int(top_offset_px)}px")
     try:
-        components.v1.html(html, height=0)  # type: ignore[attr-defined]
+        _embed_html(html)
     except Exception:
         pass
 
