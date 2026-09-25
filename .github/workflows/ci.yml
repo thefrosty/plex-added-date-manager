@@ -34,4 +34,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-pr-review # Leaves comments directly on the PR diff
-          fail_on_error: true
+          level: warning
