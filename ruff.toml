@@ -1,0 +1,7 @@
+target-version = "py312"
+line-length = 88
+
+[lint]
+# Historical Ruff default: pyflakes plus pycodestyle, without line-length
+# rules that fight embedded HTML and CSS.
+select = ["E4", "E7", "E9", "F"]

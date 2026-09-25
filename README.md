@@ -25,13 +25,19 @@ example `http://192.168.1.20:32400`.
 When Plex requires secure connections, its certificate is issued for a `plex.direct` name. Use that name as
 `PLEX_BASE_URL`. A raw IP address fails certificate verification.
 
-`PLEX_MOVIE_SECTION_ID` and `PLEX_TV_SECTION_ID` choose which libraries to edit. They default to `1` and `2`.
+`PLEX_MOVIE_SECTION_ID` and `PLEX_TV_SECTION_ID` set the library selected when the app opens. They default to `1` and `2`. Each tab also has a section menu for the other movie and TV libraries on the server.
 
 Stop the app with Ctrl+C, then:
 
 ```bash
 docker compose down
 ```
+
+## Usage
+
+Movies and TV Series each load one page at a time, with page sizes of 50, 100, or 200. Sort by added date, title, or year, and filter by year. "Title contains" narrows the items on the current page.
+
+Select items across pages and apply one added date to the whole selection. "Lock added date" tells Plex to keep that field. Turn images off when a page feels heavy.
 
 ## License
 
