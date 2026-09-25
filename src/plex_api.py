@@ -25,6 +25,15 @@ class PlexAPI:
 
     def _build_session(self) -> Session:
         s = requests.Session()
+        verify_ssl = os.environ.get("PLEX_VERIFY_SSL")
+        if verify_ssl == "False":
+            # Disable SSL verification (useful for self-signed local certificates)
+            s.verify = False
+
+            # Optional: Suppress insecure request warnings if verify=False
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         retry = Retry(
             total=5,
             connect=5,
