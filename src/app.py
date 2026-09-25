@@ -54,6 +54,51 @@ def _maybe_apply_density_from_query() -> None:
                 pass
 
 
+def _inject_tab_memory() -> None:
+    """Remember the open Streamlit tab in localStorage and restore it after reruns."""
+    html = """
+    <script>
+      (function(){
+        const parentWin = window.parent;
+        if (!parentWin || parentWin.__plexTabMemory) return;
+        parentWin.__plexTabMemory = true;
+        const key = 'plex_active_tab';
+        function tabButtons(){
+          return parentWin.document.querySelectorAll('button[role="tab"]');
+        }
+        function selectedLabel(){
+          const current = parentWin.document.querySelector('button[role="tab"][aria-selected="true"]');
+          return current ? (current.innerText || '').trim() : '';
+        }
+        function restore(){
+          let wanted = '';
+          try { wanted = localStorage.getItem(key) || ''; } catch(e) { return; }
+          if (!wanted || wanted === selectedLabel()) return;
+          const buttons = tabButtons();
+          for (const button of buttons){
+            if ((button.innerText || '').trim() === wanted){
+              button.click();
+              return;
+            }
+          }
+        }
+        parentWin.document.addEventListener('click', function(event){
+          const target = event.target;
+          const button = target && target.closest ? target.closest('button[role="tab"]') : null;
+          if (!button) return;
+          try { localStorage.setItem(key, (button.innerText || '').trim()); } catch(e) {}
+        }, true);
+        setTimeout(restore, 50);
+        setInterval(restore, 300);
+      })();
+    </script>
+    """
+    try:
+        components.v1.html(html, height=0)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 def _inject_density_bootstrap() -> None:
     cur = st.session_state.get("ui_density", "Comfortable")
     html = f"""
@@ -830,11 +875,12 @@ def _render_items(
                     plex.update_added_date(
                         section_id, rk, type_id, new_unix, lock=lock_added
                     )
-                    (
+                    # Keep this a statement. A parenthesized expression here is
+                    # rewritten by Streamlit magic and fails to parse.
+                    if hasattr(st, "toast"):
                         st.toast(f"Saved {title}")
-                        if hasattr(st, "toast")
-                        else st.success(f"Saved {title}")
-                    )
+                    else:
+                        st.success(f"Saved {title}")
                 except Exception as e:  # noqa: BLE001
                     st.error(f"Failed to save {title}: {e}")
 
@@ -865,6 +911,7 @@ def main() -> None:
     # Density persistence (localStorage → query) and initial hydrate
     _maybe_apply_density_from_query()
     _inject_density_bootstrap()
+    _inject_tab_memory()
     # Header row with density selector and Settings link
     hdr_l, hdr_c, hdr_r, hdr_s = st.columns([3, 1, 1, 1])
     with hdr_l:
