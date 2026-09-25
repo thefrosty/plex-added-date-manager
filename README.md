@@ -39,18 +39,6 @@ Movies and TV Series each load one page at a time, with page sizes of 50, 100, o
 
 Select items across pages and apply one added date to the whole selection. "Lock added date" tells Plex to keep that field. Turn images off when a page feels heavy.
 
-### CLI
-
-The same updates can run without the UI:
-
-```bash
-python src/cli.py --list-sections
-python src/cli.py --section-id 1 --type movie --year 2023 --date 2024-01-15 --dry-run
-python src/cli.py --section-id 1 --type movie --date 2024-01-15 --max-per-minute 120
-```
-
-`python src/cli.py --help` lists the remaining flags.
-
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more details.
