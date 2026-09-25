@@ -388,12 +388,20 @@ def _controls(prefix: str, *, sections: List[dict], section_type: str) -> Dict:
     r2c1, r2c2, r2c3 = st.columns([1, 1, 3])
     with r2c1:
         st.checkbox("Lock added date", key=lock_key)
+
+    def _reset_filters(
+        year_key=year_key,
+        title_key=title_key,
+        sort_key=sort_key,
+        page_key=page_key,
+    ):
+        st.session_state[year_key] = ""
+        st.session_state[title_key] = ""
+        st.session_state[sort_key] = "addedAt:desc"
+        st.session_state[page_key] = 1
+
     with r2c2:
-        if st.button("Reset Filters", key=f"{prefix}_reset"):
-            st.session_state[year_key] = ""
-            st.session_state[title_key] = ""
-            st.session_state[sort_key] = "addedAt:desc"
-            st.session_state[page_key] = 1
+        st.button("Reset Filters", key=f"{prefix}_reset", on_click=_reset_filters)
     with r2c3:
         st.caption("Tip: Use the pager to jump to any page.")
 
