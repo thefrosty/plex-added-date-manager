@@ -39,13 +39,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-    <style>.stDeployButton { visibility: hidden; }</style>
-    """,
-    unsafe_allow_html=True,
-)
-
 
 def _safe_rerun() -> None:
     try:
