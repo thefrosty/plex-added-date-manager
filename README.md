@@ -37,7 +37,7 @@ docker compose down
 
 ## Usage
 
-Movies, TV Series, and Music each load one page at a time. Page size is 20, 50, or 100. Sort by added date, title, or year, and filter by year. "Title contains" narrows the items on the current page. The Music tab lists artists in an artist library.
+Movies, TV Series, and Music each load one page at a time. Page size is 20, 50, or 100. Sort by added date, title, or year, and filter by year. "Title contains" narrows the items on the current page. The Music tab lists albums in an artist library.
 
 Select items across pages and apply one added date to the whole selection. "Lock added date" tells Plex to keep that field. Turn images off when a page feels heavy.
 

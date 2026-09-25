@@ -776,9 +776,11 @@ def _render_items(
                     st.image(url, width=poster_w)
         with cols[1]:
             title = item.get("title", "Unknown")
+            artist = item.get("parentTitle")
             year = item.get("year")
             rel = item.get("originallyAvailableAt") or "-"
-            display = f"{title} ({year})" if year else title
+            name = f"{artist} — {title}" if artist else title
+            display = f"{name} ({year})" if year else name
             st.markdown(
                 f"<div class='title-row'><h3>{display}</h3></div>",
                 unsafe_allow_html=True,
@@ -933,9 +935,9 @@ def main() -> None:
             prefix="music",
             label="Music",
             section_type="artist",
-            type_id="8",
+            type_id="9",
             fallback_section_id="",
-            empty_message="No artists found for current filters.",
+            empty_message="No albums found for current filters.",
         )
 
 
@@ -982,7 +984,12 @@ def _render_library_tab(
 
     title_filter = (cfg["title"] or "").strip().lower()
     if title_filter:
-        items = [i for i in items if title_filter in (i.get("title", "").lower())]
+        items = [
+            i
+            for i in items
+            if title_filter
+            in f"{i.get('parentTitle', '')} {i.get('title', '')}".lower()
+        ]
 
     total_pages = max(1, (total + int(cfg["page_size"]) - 1) // int(cfg["page_size"]))
     page_key = f"{prefix}_page"
